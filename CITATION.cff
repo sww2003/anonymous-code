@@ -1,0 +1,7 @@
+cff-version: 1.2.0
+message: "Citation metadata will be updated after anonymous review."
+title: "PhoenixSR: Generative Heterogeneous Distillation Unleashes Efficient Models for Real-World Super-Resolution"
+version: 0.1.0
+license: Apache-2.0
+authors:
+  - family-names: Anonymous

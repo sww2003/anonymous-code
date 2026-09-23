@@ -1,0 +1,242 @@
+# Canonical DMD training config for PhoenixSR.
+# All paths that used to be hidden in Python are explicit here; edit them for a new machine.
+name: dmd_sr_swinir
+model_type: DMDSRModel
+scale: 4
+num_gpu: auto
+manual_seed: 0
+find_unused_parameters: false
+
+dmd:
+  loss_weight: 0.5
+  min_timestep: 0
+  max_timestep: 200
+  noise_shift:
+    enabled: true
+    switch_iter: 100000
+    stage1: 4.0
+    stage2: 0.5
+  direction:
+    enabled: true
+    temperature: 0.2
+    min_weight: 0.2
+    max_weight: 3.0
+    eps: 1.0e-8
+  standard:
+    norm_eps: 1.0e-4
+    grad_rms_max: 0.5
+    loss_clip_max: 0.5
+
+updates:
+  score_interval: 1
+  generator_interval: 5
+  generator_interval_after_switch: 1
+  switch_iter: 100000
+  discriminator_interval: 1
+  freeze_generator_iters: 8000
+  freeze_discriminator_iters: 8000
+
+score:
+  model_path: pretrained_models/stable-diffusion-2-1
+  torch_dtype: float32
+  prompt: 'masterpiece, best quality, ultra-detailed, high resolution, highly detailed, sharp focus, extremely intricate, professional photography, high-definition.'
+  checkpoint_name: score_latest.pth
+  fake:
+    optimizer:
+      type: AdamW
+      lr: 3.0e-5
+      betas: [0.9, 0.999]
+      eps: 1.0e-8
+      weight_decay: 0.01
+  real:
+    rank: 16
+    alpha: 32
+    dropout: 0.0
+    target_modules: [to_q, to_k, to_v, to_out.0, proj_in, proj_out]
+    optimizer:
+      type: AdamW
+      lr: 3.0e-5
+      betas: [0.9, 0.999]
+      eps: 1.0e-8
+      weight_decay: 0.01
+  repa:
+    enabled: true
+    module: down_blocks.0
+    output_path: 0
+    type: DMDRepaLoss
+    in_dim: 320
+    target_dim: 768
+    hidden_dim: 1024
+    target_range: zero_one
+    loss_mode: neg_cosine
+    loss_weight: 0.1
+    dino_repo_dir: dinov3
+    dino_weights: pretrained_models/dinov3_vitb16_pretrain_lvd1689m.pth
+    dino_model_name: dinov3_vitb16
+
+# RealESRGAN high-order degradation.
+l1_gt_usm: true
+percep_gt_usm: true
+gan_gt_usm: false
+resize_prob: [0.2, 0.7, 0.1]
+resize_range: [0.15, 1.5]
+gaussian_noise_prob: 0.5
+noise_range: [1, 30]
+poisson_scale_range: [0.05, 3]
+gray_noise_prob: 0.4
+jpeg_range: [30, 95]
+second_blur_prob: 0.8
+resize_prob2: [0.3, 0.4, 0.3]
+resize_range2: [0.3, 1.2]
+gaussian_noise_prob2: 0.5
+noise_range2: [1, 25]
+poisson_scale_range2: [0.05, 2.5]
+gray_noise_prob2: 0.4
+jpeg_range2: [30, 95]
+gt_size: 256
+queue_size: 240
+
+datasets:
+  train:
+    name: DMDTrain
+    type: RealESRGANDataset
+    dataroot_gt: datasets/train/HR
+    io_backend:
+      type: disk
+    blur_kernel_size: 21
+    kernel_list: [iso, aniso, generalized_iso, generalized_aniso, plateau_iso, plateau_aniso]
+    kernel_prob: [0.45, 0.25, 0.12, 0.03, 0.12, 0.03]
+    sinc_prob: 0.1
+    blur_sigma: [0.2, 3]
+    betag_range: [0.5, 4]
+    betap_range: [1, 2]
+    blur_kernel_size2: 21
+    kernel_list2: [iso, aniso, generalized_iso, generalized_aniso, plateau_iso, plateau_aniso]
+    kernel_prob2: [0.45, 0.25, 0.12, 0.03, 0.12, 0.03]
+    sinc_prob2: 0.1
+    blur_sigma2: [0.2, 1.5]
+    betag_range2: [0.5, 4]
+    betap_range2: [1, 2]
+    final_sinc_prob: 0.8
+    gt_size: 256
+    use_hflip: true
+    use_rot: false
+    num_worker_per_gpu: 8
+    batch_size_per_gpu: 1
+    dataset_enlarge_ratio: 1
+    prefetch_mode: ~
+  val:
+    name: RealSR
+    type: PairedImageDataset
+    dataroot_gt: datasets/RealSR/HR
+    dataroot_lq: datasets/RealSR/LR
+    io_backend:
+      type: disk
+
+network_g:
+  type: SwinIR
+  upscale: 4
+  in_chans: 3
+  img_size: 64
+  window_size: 8
+  img_range: 1.0
+  depths: [6, 6, 6, 6, 6, 6, 6, 6, 6]
+  embed_dim: 240
+  num_heads: [8, 8, 8, 8, 8, 8, 8, 8, 8]
+  mlp_ratio: 2
+  upsampler: nearest+conv
+  resi_connection: 3conv
+
+network_d:
+  type: UNetDiscriminatorSN
+  num_in_ch: 3
+  num_feat: 64
+  skip_connection: true
+
+path:
+  pretrain_network_g: pretrained_models/swinir_real_sr_x4.pth
+  param_key_g: params_ema
+  strict_load_g: false
+  pretrain_network_d: ~
+  param_key_d: params_ema
+  strict_load_d: true
+  resume_state: ~
+
+train:
+  ema_decay: 0.999
+  optim_g:
+    type: Adam
+    lr: 3.0e-5
+    weight_decay: 0
+    betas: [0.9, 0.99]
+  optim_d:
+    type: Adam
+    lr: 1.0e-4
+    weight_decay: 0
+    betas: [0.9, 0.99]
+  scheduler:
+    type: MultiStepLR
+    milestones: [400000, 800000]
+    gamma: 0.5
+  total_iter: 800000
+  warmup_iter: -1
+
+  pixel_opt:
+    type: L1Loss
+    loss_weight: 1.0
+    reduction: mean
+  perceptual_opt:
+    type: PerceptualLoss
+    layer_weights:
+      conv1_2: 0.1
+      conv2_2: 0.1
+      conv3_4: 1
+      conv4_4: 1
+      conv5_4: 1
+    vgg_type: vgg19
+    use_input_norm: true
+    perceptual_weight: 0.01
+    style_weight: 0
+    range_norm: false
+    criterion: l1
+  gan_opt:
+    type: GANLoss
+    gan_type: vanilla
+    real_label_val: 1.0
+    fake_label_val: 0.0
+    loss_weight: 0.05
+  net_d_iters: 1
+  net_d_init_iters: 0
+
+val:
+  val_freq: 2000
+  save_img: true
+  metrics:
+    psnr_y:
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: true
+    ssim_y:
+      type: calculate_ssim
+      crop_border: 0
+      test_y_channel: true
+    niqe:
+      type: calculate_niqe
+      crop_border: 0
+      better: lower
+    maniqa:
+      type: calculate_maniqa
+      crop_border: 0
+      better: higher
+
+logger:
+  print_freq: 50
+  save_checkpoint_freq: 10000
+  use_tb_logger: true
+  wandb:
+    project: ~
+    resume_id: ~
+
+dist_params:
+  backend: nccl
+  port: 29500
